@@ -1,0 +1,39 @@
+'''
+To run, restart, and plot using e.g. 16 processes:
+    $ mpiexec -n 16 python3 main.py
+    $ mpiexec -n 16 python3 main.py --restart
+'''
+import sys
+import numpy as np
+import matplotlib.pyplot as plt
+import dedalus.public as d3
+import math
+import logging
+logger = logging.getLogger(__name__)
+
+# Allow restarting via command line
+restart = (len(sys.argv) > 1 and sys.argv[1] == '--restart')
+
+dealias = 3/2 
+pi = np.pi
+
+############ parameter settings
+Re = 100 # set Re=100 for testing
+Wi = 30
+Lmax = 200
+beta = 0.7
+epsilon = 4e-5
+Lx, Lz = 2., 1.
+Nx, Nz = 384, 192
+stop_sim_time = 100 + 300*restart # Stopping criteria
+############ parameter settings
+
+
+# Bases
+coords = d3.CartesianCoordinates('x','z')
+dist = d3.Distributor(coords, dtype=np.float64)
+# define the coordinate system
+xbasis = d3.RealFourier(coords['x'], size=Nx, bounds=(0, Lx), dealias=dealias)
+zbasis = d3.RealFourier(coords['z'], size=Nz, bounds=(0, Lz), dealias=dealias)
+
+
