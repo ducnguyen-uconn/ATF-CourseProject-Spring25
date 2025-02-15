@@ -40,8 +40,8 @@ zbasis = d3.RealFourier(coords['z'], size=Nz, bounds=(0, Lz), dealias=dealias)
 u = dist.VectorField(coords, name='u', bases=(xbasis, zbasis))
 p = dist.Field(name='p', bases=(xbasis, zbasis))
 Cxx = dist.Field(name='Cxx', bases=(xbasis, zbasis))
-Cxy = dist.Field(name='Cxy', bases=(xbasis, zbasis))
-Cyy = dist.Field(name='Cyy', bases=(xbasis, zbasis))
+Cxz = dist.Field(name='Cxy', bases=(xbasis, zbasis))
+Czz = dist.Field(name='Cyy', bases=(xbasis, zbasis))
 
 # Substitutions
 x, z = dist.local_grids(xbasis, zbasis)
