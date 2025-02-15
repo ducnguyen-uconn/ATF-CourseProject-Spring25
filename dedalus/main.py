@@ -36,4 +36,32 @@ dist = d3.Distributor(coords, dtype=np.float64)
 xbasis = d3.RealFourier(coords['x'], size=Nx, bounds=(0, Lx), dealias=dealias)
 zbasis = d3.RealFourier(coords['z'], size=Nz, bounds=(0, Lz), dealias=dealias)
 
+# Fields
+u = dist.VectorField(coords, name='u', bases=(xbasis, zbasis))
+p = dist.Field(name='p', bases=(xbasis, zbasis))
+Cxx = dist.Field(name='Cxx', bases=(xbasis, zbasis))
+Cxy = dist.Field(name='Cxy', bases=(xbasis, zbasis))
+Cyy = dist.Field(name='Cyy', bases=(xbasis, zbasis))
 
+# Substitutions
+x, z = dist.local_grids(xbasis, zbasis)
+ex, ez = coords.unit_vector_fields(dist)
+
+# FENE-P Model Terms
+trC = Cxx + Czz
+f = 1 / ((1 - (trC - 3))/Lmax**2) 
+Txx = (Cxx * f - 1) / Wi
+Txz = (Cxz * f) / Wi
+Tzz = (Czz * f - 1) / Wi
+
+# Problem Setup
+problem = d3.IVP([u, p, Cxx, Cxz, Czz], namespace=locals())
+
+# Momentum equation (linear LHS)
+problem.add_equation(
+    "Re*dt(u) + Re*grad(p) - beta*div(grad(u)) = "
+    "Re*dot(u, grad(u)) + (1-beta)*div(Txx*ex*ex + Txz*ex*ez + Txz*ez*ex + Tzz*ez*ez)"
+)
+
+# Incompressibility condition
+problem.add_equation("div(u) = 0")
