@@ -1,6 +1,9 @@
 import numpy as np
 import dedalus.public as d3
 import logging
+import h5py
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
 logger = logging.getLogger(__name__)
 
 
@@ -67,6 +70,7 @@ b['g'] += Lz - z # Add linear background
 # Analysis
 snapshots = solver.evaluator.add_file_handler('snapshots', sim_dt=0.25, max_writes=50)
 snapshots.add_task(b, name='buoyancy')
+snapshots.add_task(u, name='velocity')
 #snapshots.add_task(-d3.div(d3.skew(u)), name='vorticity')
 
 # CFL
@@ -93,3 +97,40 @@ except:
     raise
 finally:
     solver.log_stats()
+
+
+# Load saved snapshot data
+filename = "snapshots/snapshots_s1.h5"
+with h5py.File(filename, 'r') as f:
+    b_data = f['tasks/buoyancy'][-1]  # Last saved buoyancy field
+    u_data = f['tasks/velocity'][-1]  # Last saved velocity field
+
+# Define grid
+Nz, Ny, Nx = b_data.shape  # Get field shape
+x = np.linspace(0, 1, Nx)
+y = np.linspace(0, 1, Ny)
+z = np.linspace(0, 1, Nz)
+X, Y, Z = np.meshgrid(x, y, z, indexing='ij')
+
+# Extract velocity components
+Ux, Uy, Uz = u_data[..., 0], u_data[..., 1], u_data[..., 2]
+
+# Plotting
+fig = plt.figure(figsize=(10, 8))
+ax = fig.add_subplot(111, projection='3d')
+
+# Plot velocity field (quiver)
+ax.quiver(X[::5, ::5, ::5], Y[::5, ::5, ::5], Z[::5, ::5, ::5], 
+          Ux[::5, ::5, ::5], Uy[::5, ::5, ::5], Uz[::5, ::5, ::5], 
+          length=0.05, normalize=True, color='r')
+
+# Plot buoyancy (contour)
+ax.scatter(X, Y, Z, c=b_data.flatten(), cmap='viridis', alpha=0.5)
+
+ax.set_xlabel("X")
+ax.set_ylabel("Y")
+ax.set_zlabel("Z")
+ax.set_title("Velocity and Buoyancy Force")
+
+plt.show()
+
