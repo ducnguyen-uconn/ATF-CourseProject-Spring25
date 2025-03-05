@@ -71,7 +71,7 @@ b['g'] += Lz - z # Add linear background
 snapshots = solver.evaluator.add_file_handler('snapshots', sim_dt=0.25, max_writes=50)
 snapshots.add_task(b, name='buoyancy')
 snapshots.add_task(u, name='velocity')
-#snapshots.add_task(-d3.div(d3.skew(u)), name='vorticity')
+snapshots.add_task(d3.div(u), name='vorticity')
 
 # CFL
 CFL = d3.CFL(solver, initial_dt=max_timestep, cadence=10, safety=0.5, threshold=0.05,
