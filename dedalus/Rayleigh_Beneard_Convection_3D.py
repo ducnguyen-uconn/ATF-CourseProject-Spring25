@@ -4,12 +4,72 @@ import logging
 import h5py
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
+
+
+def saveScalarToVTK(x,y,z,scalar,name,filename):
+    import vtk
+    import numpy as np
+    # Create a structured grid
+    grid = vtk.vtkStructuredGrid()
+    grid.SetDimensions(len(x), len(y), len(z))
+    # Create grid points
+    points = vtk.vtkPoints()
+    for k in range(len(z)):
+        for j in range(len(y)):
+            for i in range(len(x)):
+                points.InsertNextPoint(x[i], y[j], z[k])
+    grid.SetPoints(points)
+    # Create data field
+    scalars = vtk.vtkFloatArray()
+    scalars.SetNumberOfComponents(1)
+    scalars.SetName(name)
+    for k in range(len(z)):
+        for j in range(len(y)):
+            for i in range(len(x)):
+                scalars.InsertNextValue(scalar[i, j, k])
+    grid.GetPointData().SetScalars(scalars)
+    # Write to VTK file
+    writer = vtk.vtkStructuredGridWriter()
+    writer.SetFileName(filename+".vtk")
+    writer.SetInputData(grid)
+    writer.Write()
+    print("VTK file saved as '"+filename+".vtk'")
+
+def saveVectorToVTK(x,y,z,vec,name,filename):
+    import vtk
+    import numpy as np
+    # Create a structured grid
+    grid = vtk.vtkStructuredGrid()
+    grid.SetDimensions(len(x), len(y), len(z))
+    # Create grid points
+    points = vtk.vtkPoints()
+    for k in range(len(z)):
+        for j in range(len(y)):
+            for i in range(len(x)):
+                points.InsertNextPoint(x[i], y[j], z[k])
+    grid.SetPoints(points)
+    # Create data field
+    vectors = vtk.vtkFloatArray()
+    vectors.SetNumberOfComponents(3)
+    vectors.SetName(name)
+    for k in range(len(z)):
+        for j in range(len(y)):
+            for i in range(len(x)):
+                vectors.InsertNextTuple(vec[i, j, k])
+    grid.GetPointData().SetVectors(vectors)
+    # Write to VTK file
+    writer = vtk.vtkStructuredGridWriter()
+    writer.SetFileName(filename+".vtk")
+    writer.SetInputData(grid)
+    writer.Write()
+    print("VTK file saved as '"+filename+".vtk'")
+
 logger = logging.getLogger(__name__)
 
-
+# mpiexec -n 16 python3 Rayleigh_Beneard_Convection_3D.py
 # Parameters
 Lx,Ly,Lz = 1, 1, 1
-Nx,Ny,Nz = 64, 64, 64
+Nx,Ny,Nz = 32, 34, 36
 Rayleigh = 2e6
 Prandtl = 1
 dealias = 3/2
@@ -26,14 +86,14 @@ ybasis = d3.RealFourier(coords['y'], size=Ny, bounds=(0, Ly), dealias=dealias)
 zbasis = d3.ChebyshevT(coords['z'], size=Nz, bounds=(0, Lz), dealias=dealias)
 
 # Fields
-p = dist.Field(name='p', bases=(xbasis,zbasis))
-b = dist.Field(name='b', bases=(xbasis,zbasis))
-u = dist.VectorField(coords, name='u', bases=(xbasis,zbasis))
+p = dist.Field(name='p', bases=(xbasis,ybasis,zbasis))
+b = dist.Field(name='b', bases=(xbasis,ybasis,zbasis))
+u = dist.VectorField(coords, name='u', bases=(xbasis,ybasis,zbasis))
 tau_p = dist.Field(name='tau_p')
-tau_b1 = dist.Field(name='tau_b1', bases=xbasis)
-tau_b2 = dist.Field(name='tau_b2', bases=xbasis)
-tau_u1 = dist.VectorField(coords, name='tau_u1', bases=xbasis)
-tau_u2 = dist.VectorField(coords, name='tau_u2', bases=xbasis)
+tau_b1 = dist.Field(name='tau_b1', bases=(xbasis,ybasis))
+tau_b2 = dist.Field(name='tau_b2', bases=(xbasis,ybasis))
+tau_u1 = dist.VectorField(coords, name='tau_u1', bases=(xbasis,ybasis))
+tau_u2 = dist.VectorField(coords, name='tau_u2', bases=(xbasis,ybasis))
 
 # Substitutions
 kappa = (Rayleigh * Prandtl)**(-1/2)
@@ -82,6 +142,13 @@ CFL.add_velocity(u)
 flow = d3.GlobalFlowProperty(solver, cadence=10)
 flow.add_property(np.sqrt(u@u)/nu, name='Re')
 
+xg = xbasis.global_grid(dist, scale=dealias) # global grids
+yg = ybasis.global_grid(dist, scale=dealias)
+zg = zbasis.global_grid(dist, scale=dealias)
+
+xpts = np.array(xg[:,0,0])
+ypts = np.array(yg[0,:,0])
+zpts = np.array(zg[0,0,:])
 # Main loop
 startup_iter = 10
 try:
@@ -89,9 +156,17 @@ try:
     while solver.proceed:
         timestep = CFL.compute_timestep()
         solver.step(timestep)
-        if (solver.iteration-1) % 10 == 0:
+        if (solver.iteration-1) % 100 == 0:
             max_Re = flow.max('Re')
             logger.info('Iteration=%i, Time=%e, dt=%e, max(Re)=%f' %(solver.iteration, solver.sim_time, timestep, max_Re))
+            # gather data
+            ug = u.allgather_data('g')
+            bg = b.allgather_data('g')
+            # save data inside rank #0
+            if dist.comm.rank == 0:
+                saveScalarToVTK(xpts,ypts,zpts,bg,"b","b_"+str(solver.iteration))
+                saveVectorToVTK(xpts,ypts,zpts,np.transpose(ug,(1,2,3,0)),"Velocity","velocity_"+str(solver.iteration))
+
 except:
     logger.error('Exception raised, triggering end of main loop.')
     raise
@@ -99,38 +174,38 @@ finally:
     solver.log_stats()
 
 
-# Load saved snapshot data
-filename = "snapshots/snapshots_s1.h5"
-with h5py.File(filename, 'r') as f:
-    b_data = f['tasks/buoyancy'][-1]  # Last saved buoyancy field
-    u_data = f['tasks/velocity'][-1]  # Last saved velocity field
+# # Load saved snapshot data
+# filename = "snapshots/snapshots_s1.h5"
+# with h5py.File(filename, 'r') as f:
+#     b_data = f['tasks/buoyancy'][-1]  # Last saved buoyancy field
+#     u_data = f['tasks/velocity'][-1]  # Last saved velocity field
 
-# Define grid
-Nz, Ny, Nx = b_data.shape  # Get field shape
-x = np.linspace(0, 1, Nx)
-y = np.linspace(0, 1, Ny)
-z = np.linspace(0, 1, Nz)
-X, Y, Z = np.meshgrid(x, y, z, indexing='ij')
+# # Define grid
+# Nz, Ny, Nx = b_data.shape  # Get field shape
+# x = np.linspace(0, 1, Nx)
+# y = np.linspace(0, 1, Ny)
+# z = np.linspace(0, 1, Nz)
+# X, Y, Z = np.meshgrid(x, y, z, indexing='ij')
 
-# Extract velocity components
-Ux, Uy, Uz = u_data[..., 0], u_data[..., 1], u_data[..., 2]
+# # Extract velocity components
+# Ux, Uy, Uz = u_data[..., 0], u_data[..., 1], u_data[..., 2]
 
-# Plotting
-fig = plt.figure(figsize=(10, 8))
-ax = fig.add_subplot(111, projection='3d')
+# # Plotting
+# fig = plt.figure(figsize=(10, 8))
+# ax = fig.add_subplot(111, projection='3d')
 
-# Plot velocity field (quiver)
-ax.quiver(X[::5, ::5, ::5], Y[::5, ::5, ::5], Z[::5, ::5, ::5], 
-          Ux[::5, ::5, ::5], Uy[::5, ::5, ::5], Uz[::5, ::5, ::5], 
-          length=0.05, normalize=True, color='r')
+# # Plot velocity field (quiver)
+# ax.quiver(X[::5, ::5, ::5], Y[::5, ::5, ::5], Z[::5, ::5, ::5], 
+#           Ux[::5, ::5, ::5], Uy[::5, ::5, ::5], Uz[::5, ::5, ::5], 
+#           length=0.05, normalize=True, color='r')
 
-# Plot buoyancy (contour)
-ax.scatter(X, Y, Z, c=b_data.flatten(), cmap='viridis', alpha=0.5)
+# # Plot buoyancy (contour)
+# ax.scatter(X, Y, Z, c=b_data.flatten(), cmap='viridis', alpha=0.5)
 
-ax.set_xlabel("X")
-ax.set_ylabel("Y")
-ax.set_zlabel("Z")
-ax.set_title("Velocity and Buoyancy Force")
+# ax.set_xlabel("X")
+# ax.set_ylabel("Y")
+# ax.set_zlabel("Z")
+# ax.set_title("Velocity and Buoyancy Force")
 
-plt.show()
+# plt.show()
 
